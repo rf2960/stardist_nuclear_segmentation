@@ -64,7 +64,13 @@ The final local viewer is:
 
 `results_1path_analysis/1path_stardist_analysis.html`
 
-It is intentionally **not committed to GitHub** because it is a self-contained file of about 169 MB, larger than GitHub's normal file-size limit. The viewer remains available locally and includes:
+It is intentionally **not committed to normal Git history** because it is a self-contained file of about 169 MB, larger than GitHub's normal file-size limit.
+
+Download the public GitHub Release asset here:
+
+[`1path_stardist_nuclear_viewer.html`](https://github.com/rf2960/stardist_nuclear_segmentation/releases/download/viewer-v1/1path_stardist_nuclear_viewer.html)
+
+The viewer includes:
 
 - fitted overview core circles
 - high-resolution core inspection
@@ -72,7 +78,7 @@ It is intentionally **not committed to GitHub** because it is a self-contained f
 - spatial patch grid
 - clickable high-resolution patch popups
 
-To share the viewer publicly, upload the HTML as a GitHub Release asset or to a cloud drive, then add that download/open link here. The repository keeps the code, figures, and lightweight summaries; the large HTML stays outside normal Git history.
+The repository keeps the code, figures, and lightweight summaries in Git; the large HTML is distributed through GitHub Releases.
 
 ## Repository Layout
 

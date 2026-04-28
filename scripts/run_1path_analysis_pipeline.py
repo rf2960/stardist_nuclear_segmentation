@@ -40,7 +40,7 @@ PROB_THRESH = {
     6: 0.15,
     7: 0.10,
 }
-CORE_COLORS = ["#ef4444", "#f97316", "#eab308", "#22c55e", "#06b6d4", "#a855f7", "#f8fafc"]
+CORE_COLORS = ["#ef4444", "#f97316", "#eab308", "#22c55e", "#06b6d4", "#a855f7", "#111827"]
 
 
 def encode_jpeg(image, quality=92, max_size=None):
