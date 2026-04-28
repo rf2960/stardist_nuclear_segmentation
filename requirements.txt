@@ -1,0 +1,9 @@
+numpy
+pandas
+opencv-python
+openslide-python
+Pillow
+scipy
+stardist
+tensorflow
+csbdeep

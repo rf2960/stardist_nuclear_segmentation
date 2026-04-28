@@ -1,0 +1,4 @@
+file,sha256_prefix,size_mb,width,height,levels,mpp,objective_power,image_id,aperio_filename,tissue_fraction_lowest,laplacian_var_tissue_lowest,tenengrad_mean_tissue_lowest
+TJ Cre Myc TMA1.svs,d2aa7eefdcee3bf5,38.58,13944,13644,3,0.5027,20,203009,TJ Cre Myc TMA1,0.2336,3704.89,25184.75
+TJ Cre Myc TMA2.svs,0d49286db24d5d5e,37.22,11952,12505,3,0.5027,20,203010,TJ Cre Myc TMA2,0.2449,5718.51,34223.72
+1-pathology core stained.svs,062fcb4087cd926a,125.69,25896,25028,3,0.2522,40,202483,1,0.2231,7691.97,42339.49
