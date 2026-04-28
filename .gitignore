@@ -30,3 +30,6 @@ results_1path_analysis/*
 
 # Local screenshots
 *_check.png
+
+# Local archive of superseded files
+local_archive_ignored/
