@@ -5,6 +5,7 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 from PIL import Image, ImageDraw, ImageFont
 
 
@@ -77,7 +78,11 @@ def save_density(data):
 
 
 def save_slide_comparison(data):
-    rows = data["slide_comparison"]
+    comparison_csv = ROOT / "results_1path_analysis" / "slide_comparison.csv"
+    if comparison_csv.exists():
+        rows = pd.read_csv(comparison_csv).to_dict("records")
+    else:
+        rows = data["slide_comparison"]
     names = [row["file"].replace(".svs", "") for row in rows]
     mpp = [float(row["mpp"]) for row in rows]
     ten = [float(row["tenengrad_mean_tissue_lowest"]) for row in rows]

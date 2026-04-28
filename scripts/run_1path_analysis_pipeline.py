@@ -41,6 +41,12 @@ PROB_THRESH = {
     7: 0.10,
 }
 CORE_COLORS = ["#ef4444", "#f97316", "#eab308", "#22c55e", "#06b6d4", "#a855f7", "#111827"]
+INCLUSION_RADIUS_MULT = {
+    # Core 7 has a small marginal tissue/cell area just outside the visually
+    # best-fit core circle. Keep the displayed circle tight, but use this
+    # slightly wider invisible boundary for assigning nuclei and patches.
+    7: 1.12,
+}
 
 
 def encode_jpeg(image, quality=92, max_size=None):
@@ -159,7 +165,8 @@ def segment_slide(slide, model, cores, source_mpp):
         print(f"Processing 1-path core {core_num}/7", flush=True)
         cx = core["x_full"]
         cy = core["y_full"]
-        radius_model = core["radius_full"] / model_scale
+        inclusion_full_r = core["radius_full"] * INCLUSION_RADIUS_MULT.get(core_num, 1.0)
+        radius_model = inclusion_full_r / model_scale
         core_size_model = max(int(radius_model * 2.2), 1024)
         prob_thresh = PROB_THRESH[core_num]
         raw_count = 0
@@ -251,7 +258,8 @@ def export_payload(slide, model, df, cores, source_mpp, model_scale, read_size, 
         color = CORE_COLORS[core_num - 1]
         lv1_scale = float(slide.level_downsamples[1])
         full_r = core["radius_full"]
-        r1 = int(full_r / lv1_scale)
+        inclusion_full_r = full_r * INCLUSION_RADIUS_MULT.get(core_num, 1.0)
+        r1 = int(inclusion_full_r / lv1_scale)
         size1 = r1 * 2 + 40
         origin_x = int(core["x_full"] - (size1 * lv1_scale) / 2)
         origin_y = int(core["y_full"] - (size1 * lv1_scale) / 2)
@@ -281,7 +289,7 @@ def export_payload(slide, model, df, cores, source_mpp, model_scale, read_size, 
         }
 
         patches = []
-        radius_model = full_r / model_scale
+        radius_model = inclusion_full_r / model_scale
         core_size_model = max(int(radius_model * 2.2), 1024)
         for row_i, row in enumerate(range(0, core_size_model, GRID_STEP)):
             for col_i, col in enumerate(range(0, core_size_model, GRID_STEP)):
