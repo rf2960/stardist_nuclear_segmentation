@@ -390,7 +390,7 @@ def write_html(payload, path):
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>1-path StarDist Nuclear Analysis</title>
+<title>1-path StarDist Nuclear Viewer</title>
 <style>
 :root {{ color-scheme:light; --ink:#172033; --muted:#667085; --line:#d8dee9; --bg:#f5f7fa; --accent:#0f766e; }}
 * {{ box-sizing:border-box; }}
@@ -438,12 +438,12 @@ th {{ color:var(--muted); font-weight:600; }}
 </head>
 <body>
 <header>
-  <h1>1-path StarDist Nuclear Analysis</h1>
+  <h1>1-path StarDist Nuclear Viewer</h1>
   <div class="meta"><span id="slideName"></span><span id="slideDims"></span><span id="slideMpp"></span><span id="scaleInfo"></span><span id="totalCells"></span></div>
 </header>
 <main>
   <aside><p class="hint">Segmentation was run from the 40x slide after scale-normalizing patches to ~20x for StarDist. Patch cards keep spatial order and open high-resolution 40x crops.</p><div class="core-list" id="coreList"></div></aside>
-  <section class="stage"><div class="tabs"><button class="tab active" data-view="overview">Overview</button><button class="tab" data-view="core">Core detail</button><button class="tab" data-view="patches">Patch grid</button><button class="tab" data-view="analysis">Analysis</button><button class="tab" data-view="compare">Slide compare</button></div><div class="viewer" id="content"></div></section>
+  <section class="stage"><div class="tabs"><button class="tab active" data-view="overview">Overview</button><button class="tab" data-view="core">Core detail</button><button class="tab" data-view="patches">Patch grid</button></div><div class="viewer" id="content"></div></section>
 </main>
 <div class="modal" id="modal"><div class="modal-inner"><div class="modal-bar"><span id="modalTitle"></span><button class="modal-close" id="modalClose">Close</button></div><div id="modalContent"></div></div></div>
 <script>
@@ -457,7 +457,7 @@ function setMeta() {{
  document.getElementById("slideDims").textContent = `${{DATA.slide.dimensions[0]}} x ${{DATA.slide.dimensions[1]}} px`;
  document.getElementById("slideMpp").textContent = `${{DATA.slide.appmag}}x, ${{DATA.slide.mpp}} um/px`;
  document.getElementById("scaleInfo").textContent = `model scale: ${{DATA.slide.target_mpp_for_model}} um/px`;
- document.getElementById("totalCells").textContent = `${{DATA.analysis.overall.total_cells.toLocaleString()}} nuclei`;
+ document.getElementById("totalCells").textContent = `${{coreKeys.reduce((sum,key)=>sum+DATA.cores[key].total_cells,0).toLocaleString()}} nuclei`;
 }}
 function renderCoreList() {{
  const list=document.getElementById("coreList"); list.innerHTML="";
@@ -473,7 +473,7 @@ function renderPatches() {{ const group=DATA.patches[selected], patches=group.it
 function showPatch(p) {{ document.getElementById("modalTitle").textContent=`Core ${{coreKeys.indexOf(selected)+1}} · row ${{p.row}}, col ${{p.col}} · ${{p.n_cells}} nuclei`; document.getElementById("modalContent").innerHTML=`<div class="image-wrap"><img id="modalImg" src="data:image/jpeg;base64,${{p.img_hi}}" width="${{p.hi_width}}" height="${{p.hi_height}}"><canvas class="overlay"></canvas></div>`; document.getElementById("modal").classList.add("open"); drawPatch(document.getElementById("modalImg"),p,true); }}
 function renderAnalysis() {{ const maxD=Math.max(...DATA.analysis.summary.map(r=>r.density_per_mm2)); const maxP=Math.max(...DATA.analysis.patch_stats[selected].map(p=>p.n_cells)); document.getElementById("content").innerHTML=`<div class="analysis-grid"><div class="metric">Total nuclei<strong>${{DATA.analysis.overall.total_cells.toLocaleString()}}</strong></div><div class="metric">Mean area<strong>${{DATA.analysis.overall.mean_area}} px</strong></div><div class="metric">Median area<strong>${{DATA.analysis.overall.median_area}} px</strong></div></div><table><thead><tr><th>Core</th><th>Cells</th><th>Area mm2</th><th>Density/mm2</th><th>Mean</th><th>Median</th><th>P90</th><th>Density</th></tr></thead><tbody>${{DATA.analysis.summary.map(r=>`<tr><td>Core ${{r.core}}</td><td>${{r.cells.toLocaleString()}}</td><td>${{r.area_mm2}}</td><td>${{r.density_per_mm2.toLocaleString()}}</td><td>${{r.mean_area}}</td><td>${{r.median_area}}</td><td>${{r.p90_area}}</td><td><div class="bar"><span style="width:${{100*r.density_per_mm2/maxD}}%"></span></div></td></tr>`).join("")}}</tbody></table><h3>Densest patches in selected core</h3><table><thead><tr><th>Patch</th><th>Nuclei</th><th>Relative</th></tr></thead><tbody>${{DATA.analysis.patch_stats[selected].slice(0,15).map(p=>`<tr><td>row ${{p.row}}, col ${{p.col}}</td><td>${{p.n_cells}}</td><td><div class="bar"><span style="width:${{100*p.n_cells/maxP}}%"></span></div></td></tr>`).join("")}}</tbody></table>`; }}
 function renderCompare() {{ document.getElementById("content").innerHTML=`<table><thead><tr><th>File</th><th>Power</th><th>MPP</th><th>Dimensions</th><th>Size MB</th><th>Laplacian</th><th>Tenengrad</th></tr></thead><tbody>${{DATA.slide_comparison.map(s=>`<tr><td>${{s.file}}</td><td>${{s.objective_power}}x</td><td>${{s.mpp}}</td><td>${{s.width}} x ${{s.height}}</td><td>${{s.size_mb}}</td><td>${{s.laplacian_var_tissue_lowest}}</td><td>${{s.tenengrad_mean_tissue_lowest}}</td></tr>`).join("")}}</tbody></table>`; }}
-function render() {{ if(view==="overview")renderOverview(); if(view==="core")renderCore(); if(view==="patches")renderPatches(); if(view==="analysis")renderAnalysis(); if(view==="compare")renderCompare(); }}
+function render() {{ if(view==="overview")renderOverview(); if(view==="core")renderCore(); if(view==="patches")renderPatches(); }}
 document.querySelectorAll(".tab").forEach(b=>b.onclick=()=>{{view=b.dataset.view;syncTabs();render();}});
 document.getElementById("modalClose").onclick=()=>document.getElementById("modal").classList.remove("open");
 document.getElementById("modal").onclick=e=>{{if(e.target.id==="modal")e.currentTarget.classList.remove("open");}};

@@ -71,8 +71,8 @@ It is intentionally **not committed to GitHub** because it is a self-contained f
 - nuclei overlays
 - spatial patch grid
 - clickable high-resolution patch popups
-- per-core density and morphology summaries
-- slide comparison table
+
+To share the viewer publicly, upload the HTML as a GitHub Release asset or to a cloud drive, then add that download/open link here. The repository keeps the code, figures, and lightweight summaries; the large HTML stays outside normal Git history.
 
 ## Repository Layout
 
