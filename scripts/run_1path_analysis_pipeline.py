@@ -291,35 +291,36 @@ def export_payload(slide, model, df, cores, source_mpp, model_scale, read_size, 
         patches = []
         radius_model = inclusion_full_r / model_scale
         core_size_model = max(int(radius_model * 2.2), 1024)
+        yy_grid, xx_grid = np.mgrid[0:PATCH_SIZE, 0:PATCH_SIZE]
         for row_i, row in enumerate(range(0, core_size_model, GRID_STEP)):
             for col_i, col in enumerate(range(0, core_size_model, GRID_STEP)):
                 model_left = -core_size_model / 2 + col
                 model_top = -core_size_model / 2 + row
-                if math.hypot(model_left + PATCH_SIZE / 2, model_top + PATCH_SIZE / 2) > radius_model + PATCH_SIZE * 0.5:
+                circle_overlap = (np.hypot(xx_grid + model_left, yy_grid + model_top) <= radius_model).mean()
+                if circle_overlap < 0.01:
                     continue
                 x_full = core["x_full"] + model_left * model_scale
                 y_full = core["y_full"] + model_top * model_scale
                 patch_hi, patch_model = read_model_patch(slide, x_full, y_full, read_size)
-                if patch_model.mean() > 225:
-                    continue
-                labels, details = model.predict_instances(
-                    normalize(enhance_patch(patch_model), 1, 99.8),
-                    prob_thresh=PROB_THRESH[core_num],
-                    nms_thresh=0.3,
-                )
                 polys_model = []
                 polys_hi = []
-                for cell_id, coords in enumerate(details["coord"], start=1):
-                    pts = np.array(coords).T
-                    center_y = float(np.mean(pts[:, 0]) + model_top)
-                    center_x = float(np.mean(pts[:, 1]) + model_left)
-                    if math.hypot(center_x, center_y) > radius_model:
-                        continue
-                    pts_model = [[round(float(p[1]), 1), round(float(p[0]), 1)] for p in pts]
-                    pts_hi = [[round(float(p[1] * model_scale), 1), round(float(p[0] * model_scale), 1)] for p in pts]
-                    area = int((labels == cell_id).sum())
-                    polys_model.append({"pts": pts_model, "area": area})
-                    polys_hi.append({"pts": pts_hi, "area": area})
+                if patch_model.mean() <= 248:
+                    labels, details = model.predict_instances(
+                        normalize(enhance_patch(patch_model), 1, 99.8),
+                        prob_thresh=PROB_THRESH[core_num],
+                        nms_thresh=0.3,
+                    )
+                    for cell_id, coords in enumerate(details["coord"], start=1):
+                        pts = np.array(coords).T
+                        center_y = float(np.mean(pts[:, 0]) + model_top)
+                        center_x = float(np.mean(pts[:, 1]) + model_left)
+                        if math.hypot(center_x, center_y) > radius_model:
+                            continue
+                        pts_model = [[round(float(p[1]), 1), round(float(p[0]), 1)] for p in pts]
+                        pts_hi = [[round(float(p[1] * model_scale), 1), round(float(p[0] * model_scale), 1)] for p in pts]
+                        area = int((labels == cell_id).sum())
+                        polys_model.append({"pts": pts_model, "area": area})
+                        polys_hi.append({"pts": pts_hi, "area": area})
 
                 thumb = Image.fromarray(patch_model).resize((256, 256), Image.Resampling.LANCZOS)
                 thumb_b64, _, _ = encode_jpeg(thumb, 86)
@@ -343,6 +344,7 @@ def export_payload(slide, model, df, cores, source_mpp, model_scale, read_size, 
                     "polys_model": polys_model,
                     "polys_hi": polys_hi,
                     "n_cells": len(polys_model),
+                    "circle_overlap": round(float(circle_overlap), 3),
                 })
 
         payload["patches"][key] = {
