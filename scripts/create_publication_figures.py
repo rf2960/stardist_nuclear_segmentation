@@ -5,7 +5,6 @@ from pathlib import Path
 
 import matplotlib.pyplot as plt
 import numpy as np
-import pandas as pd
 from PIL import Image, ImageDraw, ImageFont
 
 
@@ -18,15 +17,27 @@ def load_image(b64):
     return Image.open(BytesIO(base64.b64decode(b64))).convert("RGB")
 
 
+def get_fonts():
+    try:
+        return ImageFont.truetype("arial.ttf", 22), ImageFont.truetype("arial.ttf", 16)
+    except OSError:
+        return ImageFont.load_default(), ImageFont.load_default()
+
+
+def draw_polygons(image, polygons, scale=1.0, color=(255, 230, 0), width=2):
+    overlay = image.copy()
+    draw = ImageDraw.Draw(overlay)
+    for poly in polygons:
+        pts = [(x * scale, y * scale) for x, y in poly["pts"]]
+        if len(pts) > 2:
+            draw.line(pts + [pts[0]], fill=color, width=width)
+    return overlay
+
+
 def save_overview(data):
     overview = load_image(data["overview"]["img"])
     draw = ImageDraw.Draw(overview)
-    try:
-        font = ImageFont.truetype("arial.ttf", 22)
-        small = ImageFont.truetype("arial.ttf", 18)
-    except OSError:
-        font = ImageFont.load_default()
-        small = ImageFont.load_default()
+    font, _small = get_fonts()
 
     for idx, key in enumerate(data["cores"], start=1):
         core = data["cores"][key]
@@ -37,6 +48,70 @@ def save_overview(data):
 
     overview.thumbnail((1600, 1100), Image.Resampling.LANCZOS)
     overview.save(FIG_DIR / "overview_1path_cores.png", quality=95)
+
+
+def save_core_detail(data, core_key="core7"):
+    core_num = int(core_key.replace("core", ""))
+    core = data["cores"][core_key]
+    image = load_image(core["img"])
+    draw = ImageDraw.Draw(image)
+    font, small = get_fonts()
+    for cell in core["cells"]:
+        r = max(2, min(6, np.sqrt(cell["area"]) / 4))
+        x, y = cell["x"], cell["y"]
+        draw.ellipse((x - r, y - r, x + r, y + r), fill=(255, 230, 0))
+    image.thumbnail((1400, 1000), Image.Resampling.LANCZOS)
+    canvas = Image.new("RGB", (image.width, image.height + 54), "white")
+    title = f"Viewer core detail: Core {core_num} ({core['total_cells']:,} detected nuclei)"
+    d = ImageDraw.Draw(canvas)
+    d.text((16, 14), title, fill=(23, 32, 51), font=font)
+    canvas.paste(image, (0, 54))
+    canvas.save(FIG_DIR / f"viewer_core_detail_{core_key}.png", quality=95)
+
+
+def save_patch_grid(data, core_key="core1"):
+    group = data["patches"][core_key]
+    core_num = int(core_key.replace("core", ""))
+    tile = 170
+    label_h = 36
+    font, small = get_fonts()
+    canvas = Image.new(
+        "RGB",
+        (group["n_cols"] * tile, group["n_rows"] * (tile + label_h) + 54),
+        "white",
+    )
+    draw = ImageDraw.Draw(canvas)
+    draw.text((14, 14), f"Viewer patch grid: Core {core_num}", fill=(23, 32, 51), font=font)
+    by_pos = {(p["row"], p["col"]): p for p in group["items"]}
+    for row in range(group["n_rows"]):
+        for col in range(group["n_cols"]):
+            patch = by_pos.get((row, col))
+            if patch is None:
+                continue
+            x = col * tile
+            y = 54 + row * (tile + label_h)
+            img = load_image(patch["img"]).resize((tile, tile), Image.Resampling.LANCZOS)
+            img = draw_polygons(img, patch["polys_thumb"], scale=tile / 256, width=1)
+            canvas.paste(img, (x, y))
+            draw.rectangle((x, y, x + tile - 1, y + tile + label_h - 1), outline=(203, 213, 225))
+            draw.text((x + 6, y + tile + 7), f"r{row}, c{col}  {patch['n_cells']} nuclei", fill=(71, 85, 105), font=small)
+    canvas.save(FIG_DIR / f"viewer_patch_grid_{core_key}.png", quality=92)
+
+
+def save_selected_patch(data, core_key="core1", row=1, col=3):
+    core_num = int(core_key.replace("core", ""))
+    patch = next(p for p in data["patches"][core_key]["items"] if p["row"] == row and p["col"] == col)
+    image = load_image(patch["img_hi"])
+    scale = image.width / patch["hi_width"]
+    image = draw_polygons(image, patch["polys_hi"], scale=scale, width=3)
+    image.thumbnail((1500, 950), Image.Resampling.LANCZOS)
+    font, _small = get_fonts()
+    canvas = Image.new("RGB", (image.width, image.height + 58), "white")
+    draw = ImageDraw.Draw(canvas)
+    title = f"Selected high-resolution patch: Core {core_num}, row {row}, col {col} ({patch['n_cells']} nuclei)"
+    draw.text((16, 16), title, fill=(23, 32, 51), font=font)
+    canvas.paste(image, (0, 58))
+    canvas.save(FIG_DIR / f"viewer_selected_patch_core{core_num}_row{row}_col{col}.png", quality=95)
 
 
 def save_core_counts(data):
@@ -77,32 +152,37 @@ def save_density(data):
     plt.close(fig)
 
 
-def save_slide_comparison(data):
-    comparison_csv = ROOT / "results_1path_analysis" / "slide_comparison.csv"
-    if comparison_csv.exists():
-        rows = pd.read_csv(comparison_csv).to_dict("records")
-    else:
-        rows = data["slide_comparison"]
-    names = [row["file"].replace(".svs", "") for row in rows]
-    mpp = [float(row["mpp"]) for row in rows]
-    ten = [float(row["tenengrad_mean_tissue_lowest"]) for row in rows]
-
-    fig, axes = plt.subplots(1, 2, figsize=(11, 4.5), dpi=180)
-    axes[0].bar(names, mpp, color=["#64748b", "#0ea5e9", "#0f766e"])
-    axes[0].set_title("Pixel Size")
-    axes[0].set_ylabel("um / pixel")
-    axes[0].tick_params(axis="x", labelrotation=18)
-    axes[0].spines[["top", "right"]].set_visible(False)
-
-    axes[1].bar(names, ten, color=["#64748b", "#0ea5e9", "#0f766e"])
-    axes[1].set_title("Sharpness Proxy")
-    axes[1].set_ylabel("Tenengrad mean on tissue")
-    axes[1].tick_params(axis="x", labelrotation=18)
-    axes[1].spines[["top", "right"]].set_visible(False)
-
-    fig.suptitle("Slide Comparison")
+def save_area_histogram(data):
+    fig, ax = plt.subplots(figsize=(9, 4.8), dpi=180)
+    colors = [data["cores"][f"core{i}"]["color"] for i in range(1, 8)]
+    for i in range(1, 8):
+        areas = [cell["area"] for cell in data["cores"][f"core{i}"]["cells"]]
+        ax.hist(areas, bins=np.arange(20, 901, 25), histtype="step", linewidth=1.4, color=colors[i - 1], label=f"Core {i}")
+    ax.set_title("Detected Nuclear Area Distribution")
+    ax.set_xlabel("Mask area at model scale (px)")
+    ax.set_ylabel("Nuclei")
+    ax.spines[["top", "right"]].set_visible(False)
+    ax.grid(axis="y", alpha=0.18)
+    ax.legend(ncol=4, fontsize=8, frameon=False)
     fig.tight_layout()
-    fig.savefig(FIG_DIR / "slide_comparison.png", bbox_inches="tight")
+    fig.savefig(FIG_DIR / "nuclear_area_histogram.png", bbox_inches="tight")
+    plt.close(fig)
+
+
+def save_patch_load_histogram(data):
+    fig, ax = plt.subplots(figsize=(9, 4.8), dpi=180)
+    colors = [data["cores"][f"core{i}"]["color"] for i in range(1, 8)]
+    for i in range(1, 8):
+        counts = [patch["n_cells"] for patch in data["patches"][f"core{i}"]["items"]]
+        ax.hist(counts, bins=np.arange(0, 1051, 50), histtype="step", linewidth=1.4, color=colors[i - 1], label=f"Core {i}")
+    ax.set_title("Patch-Level Nuclear Load Distribution")
+    ax.set_xlabel("Detected nuclei per displayed patch")
+    ax.set_ylabel("Patches")
+    ax.spines[["top", "right"]].set_visible(False)
+    ax.grid(axis="y", alpha=0.18)
+    ax.legend(ncol=4, fontsize=8, frameon=False)
+    fig.tight_layout()
+    fig.savefig(FIG_DIR / "patch_load_histogram.png", bbox_inches="tight")
     plt.close(fig)
 
 
@@ -112,7 +192,11 @@ def main():
     save_overview(data)
     save_core_counts(data)
     save_density(data)
-    save_slide_comparison(data)
+    save_core_detail(data, "core7")
+    save_patch_grid(data, "core1")
+    save_selected_patch(data, "core1", 1, 3)
+    save_area_histogram(data)
+    save_patch_load_histogram(data)
     print(f"Saved figures to {FIG_DIR}")
 
 
