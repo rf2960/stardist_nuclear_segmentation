@@ -38,14 +38,14 @@ PROB_THRESH = {
     4: 0.15,
     5: 0.15,
     6: 0.15,
-    7: 0.10,
+    7: 0.02,
 }
 CORE_COLORS = ["#ef4444", "#f97316", "#eab308", "#22c55e", "#06b6d4", "#a855f7", "#111827"]
 INCLUSION_RADIUS_MULT = {
     # Core 7 has a small marginal tissue/cell area just outside the visually
     # best-fit core circle. Keep the displayed circle tight, but use this
     # slightly wider invisible boundary for assigning nuclei and patches.
-    7: 1.12,
+    7: 1.30,
 }
 
 
