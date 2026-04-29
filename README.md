@@ -4,25 +4,13 @@ Scale-aware StarDist nuclear segmentation and interactive analysis for tissue mi
 
 ## Overview
 
-This project analyzes H&E-stained tissue cores using the pretrained StarDist `2D_versatile_he` model. The final analysis uses the highest-resolution slide in the local dataset, normalizes patch scale for model inference, and exports an interactive local HTML viewer plus lightweight GitHub summaries.
+This project analyzes H&E-stained tissue cores using the pretrained StarDist `2D_versatile_he` model. The final analysis normalizes patch scale for model inference and exports an interactive local HTML viewer plus lightweight GitHub summaries.
 
 ![1-path overview with fitted cores](docs/figures/overview_1path_cores.png)
 
-## Final Dataset
+## Final Input
 
-The final interactive analysis was generated from:
-
-`1-pathology core stained.svs`
-
-This slide was selected because it is the highest-resolution input:
-
-| File | Objective | Pixel size | Dimensions |
-| --- | ---: | ---: | ---: |
-| `TJ Cre Myc TMA1.svs` | 20x | 0.5027 um/px | 13944 x 13644 |
-| `TJ Cre Myc TMA2.svs` | 20x | 0.5027 um/px | 11952 x 12505 |
-| `1-pathology core stained.svs` | 40x | 0.2522 um/px | 25896 x 25028 |
-
-`TJ Cre Myc TMA1 2.svs` was removed locally because it was byte-identical to `TJ Cre Myc TMA1.svs`.
+The final interactive analysis was generated from `1-pathology core stained.svs`, a 40x H&E TMA slide scanned at `0.2522 um/px`.
 
 ## Method
 
@@ -41,7 +29,7 @@ Processing steps:
 
 ## Results
 
-Final segmentation detected **79,713 nuclei** across seven cores.
+Final segmentation detected **82,032 nuclei** across seven cores.
 
 ![Core counts](docs/figures/core_counts_1path.png)
 
@@ -51,13 +39,6 @@ The committed result summaries are small CSV files:
 
 - [`results_1path_analysis/analysis_summary_1path.csv`](results_1path_analysis/analysis_summary_1path.csv)
 - [`results_1path_analysis/core_counts_1path.csv`](results_1path_analysis/core_counts_1path.csv)
-- [`results_1path_analysis/slide_comparison.csv`](results_1path_analysis/slide_comparison.csv)
-
-## Slide Quality Comparison
-
-The 40x pathology slide has the smallest pixel size and the highest sharpness proxy among the compared slides.
-
-![Slide comparison](docs/figures/slide_comparison.png)
 
 ## Interactive HTML Viewer
 
@@ -65,11 +46,11 @@ The final local viewer is:
 
 `results_1path_analysis/1path_stardist_analysis.html`
 
-It is intentionally **not committed to normal Git history** because it is a self-contained file of about 169 MB, larger than GitHub's normal file-size limit.
+It is intentionally **not committed to normal Git history** because it is a self-contained file of about 185 MB, larger than GitHub's normal file-size limit.
 
 Download the public GitHub Release asset here:
 
-[`1path_stardist_nuclear_viewer.html`](https://github.com/rf2960/stardist_nuclear_segmentation/releases/download/viewer-v1/1path_stardist_nuclear_viewer.html)
+[`1path_stardist_nuclear_viewer_2026-04-29.html`](https://github.com/rf2960/stardist-nuclear-segmentation/releases/download/viewer-v1/1path_stardist_nuclear_viewer_2026-04-29.html)
 
 The viewer includes:
 
@@ -77,6 +58,7 @@ The viewer includes:
 - high-resolution core inspection
 - nuclei overlays
 - spatial patch grid
+- segmentation overlay toggle for clean patch review
 - clickable high-resolution patch popups
 
 The repository keeps the code, figures, and lightweight summaries in Git; the large HTML is distributed through GitHub Releases.
@@ -94,12 +76,10 @@ docs/figures/
   overview_1path_cores.png
   core_counts_1path.png
   density_1path.png
-  slide_comparison.png
 
 results_1path_analysis/
   analysis_summary_1path.csv
   core_counts_1path.csv
-  slide_comparison.csv
 ```
 
 Large raw slides and generated self-contained HTML/JSON/CSV outputs are ignored by Git and kept locally.

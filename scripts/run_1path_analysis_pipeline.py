@@ -33,11 +33,11 @@ STEP = 256
 GRID_STEP = 512
 TARGET_MPP = 0.5027
 PROB_THRESH = {
-    1: 0.10,
-    2: 0.10,
-    3: 0.10,
-    4: 0.15,
-    5: 0.15,
+    1: 0.08,
+    2: 0.08,
+    3: 0.08,
+    4: 0.10,
+    5: 0.10,
     6: 0.10,
     7: 0.08,
 }
@@ -51,6 +51,8 @@ BOUNDARY_MARGIN_MODEL = {
 }
 MIN_PATCH_TISSUE_FRACTION = 0.010
 MIN_PATCH_DARK_FRACTION = 0.0015
+CELL_AREA_MIN = 20
+CELL_AREA_MAX = 900
 
 
 def encode_jpeg(image, quality=92, max_size=None):
@@ -272,6 +274,9 @@ def cell_has_nuclear_signal(labels, cell_id, patch_model):
     pix = labels == cell_id
     if not pix.any():
         return False
+    area = int(pix.sum())
+    if area < CELL_AREA_MIN or area > CELL_AREA_MAX:
+        return False
     _tissue, _dark, gray, sat = tissue_signal_masks(patch_model)
     vals = gray[pix]
     sats = sat[pix]
@@ -397,7 +402,7 @@ def segment_slide(slide, model, cores, source_mpp):
             to_remove.add(j if areas[i] >= areas[j] else i)
     deduped = [c for i, c in enumerate(all_cells) if i not in to_remove]
     df = pd.DataFrame(deduped)
-    df = df[(df["area_model_px"] >= 30) & (df["area_model_px"] <= 2200)].reset_index(drop=True)
+    df = df[(df["area_model_px"] >= CELL_AREA_MIN) & (df["area_model_px"] <= CELL_AREA_MAX)].reset_index(drop=True)
     df.insert(1, "cell_id", df.groupby("core").cumcount() + 1)
     print(f"Final 1-path nuclei: {len(df)}", flush=True)
     return df, model_scale, read_size
@@ -643,6 +648,7 @@ const DATA = {payload_json};
 let selected = "core1";
 let view = "overview";
 let minCells = 0;
+let showSegmentation = true;
 const coreKeys = Object.keys(DATA.cores);
 function setMeta() {{
  document.getElementById("slideName").textContent = DATA.slide.filename;
@@ -660,8 +666,8 @@ function canvasFor(img, draw) {{ const canvas=img.closest(".image-wrap").querySe
 function drawOverview(img) {{ canvasFor(img,ctx=>{{ctx.lineWidth=3; ctx.font="bold 18px Arial"; ctx.textAlign="center"; coreKeys.forEach((key,i)=>{{const c=DATA.cores[key]; ctx.strokeStyle=c.color; ctx.fillStyle=c.color; ctx.beginPath(); ctx.arc(c.cx_overview,c.cy_overview,c.r_overview,0,Math.PI*2); ctx.stroke(); ctx.fillText(`Core ${{i+1}}`,c.cx_overview,Math.max(22,c.cy_overview-c.r_overview-8));}});}}); }}
 function renderOverview() {{ const ov=DATA.overview; document.getElementById("content").innerHTML=`<div class="image-wrap"><img id="overviewImg" src="data:image/jpeg;base64,${{ov.img}}" width="${{ov.width}}" height="${{ov.height}}"><canvas class="overlay"></canvas></div>`; drawOverview(document.getElementById("overviewImg")); }}
 function renderCore() {{ const c=DATA.cores[selected]; document.getElementById("content").innerHTML=`<div class="image-wrap"><img id="coreImg" src="data:image/jpeg;base64,${{c.img}}" width="${{c.width}}" height="${{c.height}}"><canvas class="overlay"></canvas></div>`; canvasFor(document.getElementById("coreImg"),ctx=>{{ctx.fillStyle="rgba(255,230,0,.72)"; c.cells.forEach(cell=>{{const r=Math.max(1.8,Math.min(5,Math.sqrt(cell.area)/4)); ctx.beginPath(); ctx.arc(cell.x,cell.y,r,0,Math.PI*2); ctx.fill();}});}}); }}
-function drawPatch(img, patch, high=false) {{ const polys=high?patch.polys_hi:patch.polys_thumb; canvasFor(img,ctx=>{{ctx.strokeStyle="rgba(255,230,0,.96)"; ctx.lineWidth=high?1.8:1.1; polys.forEach(poly=>{{if(!poly.pts.length)return; ctx.beginPath(); ctx.moveTo(poly.pts[0][0],poly.pts[0][1]); poly.pts.slice(1).forEach(pt=>ctx.lineTo(pt[0],pt[1])); ctx.closePath(); ctx.stroke();}});}}); }}
-function renderPatches() {{ const group=DATA.patches[selected], patches=group.items, nCols=group.n_cols, nRows=group.n_rows; const byPos=new Map(patches.map((p,i)=>[`${{p.row}}:${{p.col}}`,{{p,i}}])); let cells=[]; for(let r=0;r<nRows;r++)for(let c=0;c<nCols;c++){{const hit=byPos.get(`${{r}}:${{c}}`); if(hit&&hit.p.n_cells>=minCells)cells.push(`<div class="patch-card" data-index="${{hit.i}}" style="grid-row:${{r+1}};grid-column:${{c+1}}"><div class="image-wrap"><img id="patch-${{hit.i}}" src="data:image/jpeg;base64,${{hit.p.img}}" width="256" height="256"><canvas class="overlay"></canvas></div><div class="patch-info"><span>row ${{hit.p.row}}, col ${{hit.p.col}}</span><strong>${{hit.p.n_cells}} nuclei</strong></div></div>`); else cells.push(`<div class="patch-card empty" style="grid-row:${{r+1}};grid-column:${{c+1}}"></div>`);}} document.getElementById("content").innerHTML=`<div class="tools"><label>Min nuclei <input id="minCells" type="range" min="0" max="250" value="${{minCells}}" step="10"></label><span>${{minCells}}</span></div><div class="patch-grid" style="grid-template-columns:repeat(${{nCols}}, minmax(160px,210px));">${{cells.join("")}}</div>`; document.getElementById("minCells").oninput=e=>{{minCells=Number(e.target.value);renderPatches();}}; patches.forEach((p,i)=>{{const img=document.getElementById(`patch-${{i}}`); if(img) drawPatch(img,p,false);}}); document.querySelectorAll(".patch-card:not(.empty)").forEach(card=>card.onclick=()=>showPatch(patches[Number(card.dataset.index)])); }}
+function drawPatch(img, patch, high=false) {{ const polys=high?patch.polys_hi:patch.polys_thumb; canvasFor(img,ctx=>{{if(!showSegmentation)return; ctx.strokeStyle="rgba(255,230,0,.96)"; ctx.lineWidth=high?1.8:1.1; polys.forEach(poly=>{{if(!poly.pts.length)return; ctx.beginPath(); ctx.moveTo(poly.pts[0][0],poly.pts[0][1]); poly.pts.slice(1).forEach(pt=>ctx.lineTo(pt[0],pt[1])); ctx.closePath(); ctx.stroke();}});}}); }}
+function renderPatches() {{ const group=DATA.patches[selected], patches=group.items, nCols=group.n_cols, nRows=group.n_rows; const byPos=new Map(patches.map((p,i)=>[`${{p.row}}:${{p.col}}`,{{p,i}}])); let cells=[]; for(let r=0;r<nRows;r++)for(let c=0;c<nCols;c++){{const hit=byPos.get(`${{r}}:${{c}}`); if(hit&&hit.p.n_cells>=minCells)cells.push(`<div class="patch-card" data-index="${{hit.i}}" style="grid-row:${{r+1}};grid-column:${{c+1}}"><div class="image-wrap"><img id="patch-${{hit.i}}" src="data:image/jpeg;base64,${{hit.p.img}}" width="256" height="256"><canvas class="overlay"></canvas></div><div class="patch-info"><span>row ${{hit.p.row}}, col ${{hit.p.col}}</span><strong>${{hit.p.n_cells}} nuclei</strong></div></div>`); else cells.push(`<div class="patch-card empty" style="grid-row:${{r+1}};grid-column:${{c+1}}"></div>`);}} document.getElementById("content").innerHTML=`<div class="tools"><label>Min nuclei <input id="minCells" type="range" min="0" max="250" value="${{minCells}}" step="10"></label><span>${{minCells}}</span><label><input id="segToggle" type="checkbox" ${{showSegmentation?"checked":""}}> Segmentation overlay</label></div><div class="patch-grid" style="grid-template-columns:repeat(${{nCols}}, minmax(160px,210px));">${{cells.join("")}}</div>`; document.getElementById("minCells").oninput=e=>{{minCells=Number(e.target.value);renderPatches();}}; document.getElementById("segToggle").onchange=e=>{{showSegmentation=e.target.checked;renderPatches();}}; patches.forEach((p,i)=>{{const img=document.getElementById(`patch-${{i}}`); if(img) drawPatch(img,p,false);}}); document.querySelectorAll(".patch-card:not(.empty)").forEach(card=>card.onclick=()=>showPatch(patches[Number(card.dataset.index)])); }}
 function showPatch(p) {{ document.getElementById("modalTitle").textContent=`Core ${{coreKeys.indexOf(selected)+1}} · row ${{p.row}}, col ${{p.col}} · ${{p.n_cells}} nuclei`; document.getElementById("modalContent").innerHTML=`<div class="image-wrap"><img id="modalImg" src="data:image/jpeg;base64,${{p.img_hi}}" width="${{p.hi_width}}" height="${{p.hi_height}}"><canvas class="overlay"></canvas></div>`; document.getElementById("modal").classList.add("open"); drawPatch(document.getElementById("modalImg"),p,true); }}
 function renderAnalysis() {{ const maxD=Math.max(...DATA.analysis.summary.map(r=>r.density_per_mm2)); const maxP=Math.max(...DATA.analysis.patch_stats[selected].map(p=>p.n_cells)); document.getElementById("content").innerHTML=`<div class="analysis-grid"><div class="metric">Total nuclei<strong>${{DATA.analysis.overall.total_cells.toLocaleString()}}</strong></div><div class="metric">Mean area<strong>${{DATA.analysis.overall.mean_area}} px</strong></div><div class="metric">Median area<strong>${{DATA.analysis.overall.median_area}} px</strong></div></div><table><thead><tr><th>Core</th><th>Cells</th><th>Area mm2</th><th>Density/mm2</th><th>Mean</th><th>Median</th><th>P90</th><th>Density</th></tr></thead><tbody>${{DATA.analysis.summary.map(r=>`<tr><td>Core ${{r.core}}</td><td>${{r.cells.toLocaleString()}}</td><td>${{r.area_mm2}}</td><td>${{r.density_per_mm2.toLocaleString()}}</td><td>${{r.mean_area}}</td><td>${{r.median_area}}</td><td>${{r.p90_area}}</td><td><div class="bar"><span style="width:${{100*r.density_per_mm2/maxD}}%"></span></div></td></tr>`).join("")}}</tbody></table><h3>Densest patches in selected core</h3><table><thead><tr><th>Patch</th><th>Nuclei</th><th>Relative</th></tr></thead><tbody>${{DATA.analysis.patch_stats[selected].slice(0,15).map(p=>`<tr><td>row ${{p.row}}, col ${{p.col}}</td><td>${{p.n_cells}}</td><td><div class="bar"><span style="width:${{100*p.n_cells/maxP}}%"></span></div></td></tr>`).join("")}}</tbody></table>`; }}
 function renderCompare() {{ document.getElementById("content").innerHTML=`<table><thead><tr><th>File</th><th>Power</th><th>MPP</th><th>Dimensions</th><th>Size MB</th><th>Laplacian</th><th>Tenengrad</th></tr></thead><tbody>${{DATA.slide_comparison.map(s=>`<tr><td>${{s.file}}</td><td>${{s.objective_power}}x</td><td>${{s.mpp}}</td><td>${{s.width}} x ${{s.height}}</td><td>${{s.size_mb}}</td><td>${{s.laplacian_var_tissue_lowest}}</td><td>${{s.tenengrad_mean_tissue_lowest}}</td></tr>`).join("")}}</tbody></table>`; }}

@@ -24,12 +24,12 @@ results_1path_analysis/*
 # Keep lightweight summaries inside result folders when explicitly added
 !results_1path_analysis/
 !results_1path_analysis/README.md
-!results_1path_analysis/slide_comparison.csv
 !results_1path_analysis/analysis_summary_1path.csv
 !results_1path_analysis/core_counts_1path.csv
 
 # Local screenshots
 *_check.png
+docs/figures/slide_comparison.png
 
 # Local archive of superseded files
 local_archive_ignored/
