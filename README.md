@@ -31,16 +31,17 @@ The final slide is 40x, while the StarDist H&E model performs best when nuclei a
 Processing steps:
 
 1. Detect seven tissue cores from a low-resolution slide overview.
-2. Fit core centers and circular tissue regions.
-3. Tile each core with overlapping patches.
-4. Scale-normalize 40x patches to model resolution.
-5. Run StarDist nuclear segmentation with per-core thresholds.
-6. Remove duplicate detections at tile boundaries.
-7. Export per-core summaries, spatial patch grids, and a local interactive HTML viewer.
+2. Fit tight overview circles for the seven cores.
+3. Build stain-gated tissue masks so boundary tissue can be included without inflating the displayed circles.
+4. Tile each core with overlapping patches.
+5. Scale-normalize 40x patches to model resolution.
+6. Run StarDist nuclear segmentation with per-core thresholds and reject blank-background false positives.
+7. Remove duplicate detections at tile boundaries.
+8. Export per-core summaries, spatial patch grids, and a local interactive HTML viewer.
 
 ## Results
 
-Final segmentation detected **81,849 nuclei** across seven cores.
+Final segmentation detected **79,713 nuclei** across seven cores.
 
 ![Core counts](docs/figures/core_counts_1path.png)
 

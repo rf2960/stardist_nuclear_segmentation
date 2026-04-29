@@ -20,11 +20,12 @@ from stardist.models import StarDist2D
 ROOT = Path(r"C:\Users\ruoch\Desktop\CU\Research\StarDist")
 SLIDE_PATH = ROOT / "1-pathology core stained.svs"
 OUT_DIR = ROOT / "results_1path_analysis"
+ARCHIVE_DIR = ROOT / "local_archive_ignored" / "superseded_pre_1path"
 
 REFERENCE_SLIDES = [
-    ROOT / "TJ Cre Myc TMA1.svs",
-    ROOT / "TJ Cre Myc TMA2.svs",
-    ROOT / "1-pathology core stained.svs",
+    [ROOT / "TJ Cre Myc TMA1.svs", ARCHIVE_DIR / "TJ Cre Myc TMA1.svs"],
+    [ROOT / "TJ Cre Myc TMA2.svs", ARCHIVE_DIR / "TJ Cre Myc TMA2.svs"],
+    [ROOT / "1-pathology core stained.svs"],
 ]
 
 PATCH_SIZE = 512
@@ -33,20 +34,23 @@ GRID_STEP = 512
 TARGET_MPP = 0.5027
 PROB_THRESH = {
     1: 0.10,
-    2: 0.15,
+    2: 0.10,
     3: 0.10,
     4: 0.15,
     5: 0.15,
-    6: 0.15,
-    7: 0.02,
+    6: 0.10,
+    7: 0.08,
 }
 CORE_COLORS = ["#ef4444", "#f97316", "#eab308", "#22c55e", "#06b6d4", "#a855f7", "#111827"]
-INCLUSION_RADIUS_MULT = {
-    # Core 7 has a small marginal tissue/cell area just outside the visually
-    # best-fit core circle. Keep the displayed circle tight, but use this
-    # slightly wider invisible boundary for assigning nuclei and patches.
-    7: 1.03,
+BOUNDARY_MARGIN_MODEL = {
+    # Invisible, stain-gated boundary margin. The overview circle stays tight;
+    # these margins only allow real tissue/cell signal just outside the circle.
+    2: 96,
+    6: 112,
+    7: 160,
 }
+MIN_PATCH_TISSUE_FRACTION = 0.010
+MIN_PATCH_DARK_FRACTION = 0.0015
 
 
 def encode_jpeg(image, quality=92, max_size=None):
@@ -63,6 +67,30 @@ def enhance_patch(patch):
     clahe = cv2.createCLAHE(clipLimit=2.5, tileGridSize=(8, 8))
     lab[:, :, 0] = clahe.apply(lab[:, :, 0])
     return cv2.cvtColor(lab, cv2.COLOR_LAB2RGB)
+
+
+def tissue_signal_masks(rgb):
+    gray = cv2.cvtColor(rgb, cv2.COLOR_RGB2GRAY)
+    hsv = cv2.cvtColor(rgb, cv2.COLOR_RGB2HSV)
+    sat = hsv[:, :, 1]
+    tissue = ((gray < 235) | ((sat > 18) & (gray < 248))).astype("uint8")
+    dark = ((gray < 178) & (sat > 8)).astype("uint8")
+    return tissue, dark, gray, sat
+
+
+def clean_tissue_mask(rgb, close_size=7, open_size=3, min_size=200):
+    tissue, _dark, _gray, _sat = tissue_signal_masks(rgb)
+    mask = cv2.morphologyEx(tissue, cv2.MORPH_CLOSE, np.ones((close_size, close_size), np.uint8))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((open_size, open_size), np.uint8))
+    labeled, n = ndimage.label(mask)
+    if n == 0:
+        return mask.astype(bool)
+    sizes = ndimage.sum(mask, labeled, range(1, n + 1))
+    keep = np.zeros_like(mask, dtype=bool)
+    for idx, size in enumerate(sizes, start=1):
+        if size >= min_size:
+            keep |= labeled == idx
+    return keep
 
 
 def slide_quality(slide, path):
@@ -91,7 +119,10 @@ def slide_quality(slide, path):
 
 def write_slide_comparison():
     rows = []
-    for path in REFERENCE_SLIDES:
+    for candidates in REFERENCE_SLIDES:
+        path = next((candidate for candidate in candidates if candidate.exists()), None)
+        if path is None:
+            continue
         if not path.exists():
             continue
         slide = openslide.OpenSlide(str(path))
@@ -103,40 +134,7 @@ def write_slide_comparison():
     return rows
 
 
-def detect_cores(slide):
-    # Use the real pyramid overview rather than a tiny generated thumbnail.
-    # The thumbnail-based fit was too conservative on lower-row cores and cut
-    # off legitimate boundary tissue. Level 2 retains enough edge detail for a
-    # stable outer circle fit while staying small enough for fast processing.
-    overview = slide.read_region((0, 0), 2, slide.level_dimensions[2]).convert("RGB")
-    thumb = np.array(overview)
-    scale_x = slide.level_dimensions[0][0] / thumb.shape[1]
-    scale_y = slide.level_dimensions[0][1] / thumb.shape[0]
-    gray = np.mean(thumb, axis=2)
-    hsv = cv2.cvtColor(thumb, cv2.COLOR_RGB2HSV)
-
-    mask = ((gray < 235) | ((hsv[:, :, 1] > 18) & (gray < 248))).astype("uint8")
-    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
-    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
-    labeled, n = ndimage.label(mask)
-    sizes = ndimage.sum(mask, labeled, range(1, n + 1))
-    components = []
-    for idx, size in enumerate(sizes, start=1):
-        if size <= 2500:
-            continue
-        core_mask = labeled == idx
-        ys, xs = np.where(core_mask)
-        pts = np.column_stack([xs.astype("float32"), ys.astype("float32")])
-        (circle_x, circle_y), radius = cv2.minEnclosingCircle(pts)
-        components.append({
-            "x_thumb": float(circle_x),
-            "y_thumb": float(circle_y),
-            # A tiny pad compensates for anti-aliased pale tissue edges without
-            # making the visible circle look inflated.
-            "radius_thumb": float(radius * 1.015),
-            "area": int(core_mask.sum()),
-        })
-
+def ordered_cores(components):
     components = sorted(components, key=lambda item: item["area"], reverse=True)[:7]
     components = sorted(components, key=lambda item: item["y_thumb"])
     rows = [components[:3], components[3:5], components[5:]]
@@ -145,7 +143,50 @@ def detect_cores(slide):
     # Preserve the established viewer convention: lower-right is Core 6 and
     # the large lower-left tissue core is Core 7.
     rows[2] = sorted(rows[2], key=lambda item: item["x_thumb"], reverse=True)
-    components = rows[0] + rows[1] + rows[2]
+    return rows[0] + rows[1] + rows[2]
+
+
+def detect_display_cores(slide):
+    thumbnail_img = slide.get_thumbnail((500, 500))
+    thumb = np.array(thumbnail_img.convert("RGB"))
+    scale_x = slide.level_dimensions[0][0] / thumb.shape[1]
+    scale_y = slide.level_dimensions[0][1] / thumb.shape[0]
+    gray = np.mean(thumb, axis=2)
+    mask = (gray < 230).astype("uint8")
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((5, 5), np.uint8))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
+    labeled, n = ndimage.label(mask)
+    sizes = ndimage.sum(mask, labeled, range(1, n + 1))
+    components = []
+    for idx, size in enumerate(sizes, start=1):
+        if size <= 120:
+            continue
+        core_mask = labeled == idx
+        rows = np.where(core_mask.any(axis=1))[0]
+        cols = np.where(core_mask.any(axis=0))[0]
+        if len(rows) == 0 or len(cols) == 0:
+            continue
+        darkness = (255 - gray) * core_mask
+        if darkness.sum() > 0:
+            yy, xx = np.indices(gray.shape)
+            weighted_x = float((xx * darkness).sum() / darkness.sum())
+            weighted_y = float((yy * darkness).sum() / darkness.sum())
+        else:
+            weighted_x = float((cols[0] + cols[-1]) / 2)
+            weighted_y = float((rows[0] + rows[-1]) / 2)
+        box_x = float((cols[0] + cols[-1]) / 2)
+        box_y = float((rows[0] + rows[-1]) / 2)
+        x = 0.65 * weighted_x + 0.35 * box_x
+        y = 0.65 * weighted_y + 0.35 * box_y
+        radius = max(rows[-1] - rows[0] + 1, cols[-1] - cols[0] + 1) * 0.52
+        components.append({
+            "x_thumb": x,
+            "y_thumb": y,
+            "radius_thumb": float(radius),
+            "area": int(core_mask.sum()),
+        })
+
+    components = ordered_cores(components)
     if len(components) != 7:
         raise RuntimeError(f"Expected 7 cores, detected {len(components)}")
 
@@ -157,10 +198,135 @@ def detect_cores(slide):
     return thumb, scale_x, scale_y, components
 
 
+def add_inclusion_masks(slide, cores):
+    level = 2
+    overview = slide.read_region((0, 0), level, slide.level_dimensions[level]).convert("RGB")
+    lv2 = np.array(overview)
+    scale_x = slide.level_dimensions[0][0] / lv2.shape[1]
+    scale_y = slide.level_dimensions[0][1] / lv2.shape[0]
+    mask = clean_tissue_mask(lv2, close_size=9, open_size=3, min_size=350)
+    labeled, n = ndimage.label(mask)
+    sizes = ndimage.sum(mask, labeled, range(1, n + 1))
+    lv2_components = []
+    for idx, size in enumerate(sizes, start=1):
+        if size < 900:
+            continue
+        ys, xs = np.where(labeled == idx)
+        lv2_components.append({
+            "idx": idx,
+            "area": int(size),
+            "x_full": float(xs.mean() * scale_x),
+            "y_full": float(ys.mean() * scale_y),
+        })
+
+    used = set()
+    for core in cores:
+        nearest = None
+        nearest_dist = float("inf")
+        for comp in lv2_components:
+            if comp["idx"] in used:
+                continue
+            dist = math.hypot(comp["x_full"] - core["x_full"], comp["y_full"] - core["y_full"])
+            if dist < nearest_dist:
+                nearest = comp
+                nearest_dist = dist
+        if nearest is None:
+            include_mask = np.zeros_like(mask, dtype=bool)
+        else:
+            used.add(nearest["idx"])
+            include_mask = labeled == nearest["idx"]
+            include_mask = ndimage.binary_dilation(include_mask, iterations=10)
+        core["include_mask_lv2"] = include_mask
+        core["lv2_scale_x"] = scale_x
+        core["lv2_scale_y"] = scale_y
+    return cores
+
+
+def detect_cores(slide):
+    thumb, scale_x, scale_y, components = detect_display_cores(slide)
+    components = add_inclusion_masks(slide, components)
+    return thumb, scale_x, scale_y, components
+
+
 def read_model_patch(slide, x_full, y_full, read_size):
     patch = slide.read_region((int(round(x_full)), int(round(y_full))), 0, (read_size, read_size)).convert("RGB")
     patch_model = patch.resize((PATCH_SIZE, PATCH_SIZE), Image.Resampling.LANCZOS)
     return patch, np.array(patch_model)
+
+
+def patch_signal(rgb):
+    tissue, dark, _gray, _sat = tissue_signal_masks(rgb)
+    return float(tissue.mean()), float(dark.mean())
+
+
+def point_in_include_mask(core, x_full, y_full):
+    x = int(round(x_full / core["lv2_scale_x"]))
+    y = int(round(y_full / core["lv2_scale_y"]))
+    mask = core["include_mask_lv2"]
+    if y < 0 or y >= mask.shape[0] or x < 0 or x >= mask.shape[1]:
+        return False
+    return bool(mask[y, x])
+
+
+def cell_has_nuclear_signal(labels, cell_id, patch_model):
+    pix = labels == cell_id
+    if not pix.any():
+        return False
+    _tissue, _dark, gray, sat = tissue_signal_masks(patch_model)
+    vals = gray[pix]
+    sats = sat[pix]
+    # Blank background can still produce low-probability StarDist polygons,
+    # especially around dust. Require real hematoxylin/stain signal inside the
+    # predicted object before accepting a boundary nucleus.
+    return (
+        float(vals.mean()) < 218
+        or float(np.percentile(vals, 15)) < 176
+        or (float(sats.mean()) > 24 and float(vals.mean()) < 232)
+    )
+
+
+def keep_cell_for_core(core, cell_x_model, cell_y_model, patch_model, labels, cell_id, model_scale):
+    core_num = core["core"]
+    radius_model = core["radius_full"] / model_scale
+    dist = math.hypot(cell_x_model, cell_y_model)
+    if dist <= radius_model:
+        return cell_has_nuclear_signal(labels, cell_id, patch_model)
+
+    margin = BOUNDARY_MARGIN_MODEL.get(core_num, 64)
+    if dist > radius_model + margin:
+        return False
+
+    x_full = core["x_full"] + cell_x_model * model_scale
+    y_full = core["y_full"] + cell_y_model * model_scale
+    if not point_in_include_mask(core, x_full, y_full):
+        return False
+    return cell_has_nuclear_signal(labels, cell_id, patch_model)
+
+
+def patch_allowed_for_core(core, patch_model, model_left, model_top, model_scale):
+    radius_model = core["radius_full"] / model_scale
+    yy, xx = np.mgrid[0:PATCH_SIZE, 0:PATCH_SIZE]
+    dist = np.hypot(xx + model_left, yy + model_top)
+    circle_overlap = float((dist <= radius_model).mean())
+    tissue_frac, dark_frac = patch_signal(patch_model)
+    has_signal = tissue_frac >= MIN_PATCH_TISSUE_FRACTION or dark_frac >= MIN_PATCH_DARK_FRACTION
+    if not has_signal:
+        return False, circle_overlap, tissue_frac, dark_frac
+    if circle_overlap >= 0.01:
+        return True, circle_overlap, tissue_frac, dark_frac
+
+    margin = BOUNDARY_MARGIN_MODEL.get(core["core"], 64)
+    if float((dist <= radius_model + margin).mean()) < 0.01:
+        return False, circle_overlap, tissue_frac, dark_frac
+
+    sample_y, sample_x = np.where(tissue_signal_masks(patch_model)[0] > 0)
+    if len(sample_x) == 0:
+        return False, circle_overlap, tissue_frac, dark_frac
+    stride = max(1, len(sample_x) // 1200)
+    xs_full = core["x_full"] + (sample_x[::stride] + model_left) * model_scale
+    ys_full = core["y_full"] + (sample_y[::stride] + model_top) * model_scale
+    hits = sum(point_in_include_mask(core, x, y) for x, y in zip(xs_full, ys_full))
+    return hits > 0, circle_overlap, tissue_frac, dark_frac
 
 
 def segment_slide(slide, model, cores, source_mpp):
@@ -174,9 +340,9 @@ def segment_slide(slide, model, cores, source_mpp):
         print(f"Processing 1-path core {core_num}/7", flush=True)
         cx = core["x_full"]
         cy = core["y_full"]
-        inclusion_full_r = core["radius_full"] * INCLUSION_RADIUS_MULT.get(core_num, 1.0)
-        radius_model = inclusion_full_r / model_scale
-        core_size_model = max(int(radius_model * 2.2), 1024)
+        radius_model = core["radius_full"] / model_scale
+        margin = BOUNDARY_MARGIN_MODEL.get(core_num, 64)
+        core_size_model = max(int((radius_model + margin) * 2 + PATCH_SIZE), 1024)
         prob_thresh = PROB_THRESH[core_num]
         raw_count = 0
 
@@ -186,18 +352,16 @@ def segment_slide(slide, model, cores, source_mpp):
                 model_top = -core_size_model / 2 + row
                 patch_center_x = model_left + PATCH_SIZE / 2
                 patch_center_y = model_top + PATCH_SIZE / 2
-                if math.hypot(patch_center_x, patch_center_y) > radius_model + PATCH_SIZE * 0.7:
+                if math.hypot(patch_center_x, patch_center_y) > radius_model + margin + PATCH_SIZE * 0.7:
                     continue
 
                 x_full = cx + model_left * model_scale
                 y_full = cy + model_top * model_scale
                 _patch_hi, patch = read_model_patch(slide, x_full, y_full, read_size)
-                if patch.mean() > 225:
-                    continue
-
-                yy, xx = np.mgrid[0:PATCH_SIZE, 0:PATCH_SIZE]
-                dist = np.hypot(xx + model_left, yy + model_top)
-                if (dist <= radius_model).mean() < 0.10:
+                allowed, _circle_overlap, _tissue_frac, _dark_frac = patch_allowed_for_core(
+                    core, patch, model_left, model_top, model_scale
+                )
+                if not allowed:
                     continue
 
                 labels, _ = model.predict_instances(
@@ -212,7 +376,7 @@ def segment_slide(slide, model, cores, source_mpp):
                     pix = np.where(labels == cell_id)
                     cell_x_model = float(np.mean(pix[1]) + model_left)
                     cell_y_model = float(np.mean(pix[0]) + model_top)
-                    if math.hypot(cell_x_model, cell_y_model) > radius_model:
+                    if not keep_cell_for_core(core, cell_x_model, cell_y_model, patch, labels, cell_id, model_scale):
                         continue
                     all_cells.append({
                         "core": core_num,
@@ -267,8 +431,8 @@ def export_payload(slide, model, df, cores, source_mpp, model_scale, read_size, 
         color = CORE_COLORS[core_num - 1]
         lv1_scale = float(slide.level_downsamples[1])
         full_r = core["radius_full"]
-        inclusion_full_r = full_r * INCLUSION_RADIUS_MULT.get(core_num, 1.0)
-        r1 = int(inclusion_full_r / lv1_scale)
+        margin_full = BOUNDARY_MARGIN_MODEL.get(core_num, 64) * model_scale
+        r1 = int((full_r + margin_full) / lv1_scale)
         size1 = r1 * 2 + 40
         origin_x = int(core["x_full"] - (size1 * lv1_scale) / 2)
         origin_y = int(core["y_full"] - (size1 * lv1_scale) / 2)
@@ -298,38 +462,39 @@ def export_payload(slide, model, df, cores, source_mpp, model_scale, read_size, 
         }
 
         patches = []
-        radius_model = inclusion_full_r / model_scale
-        core_size_model = max(int(radius_model * 2.2), 1024)
-        yy_grid, xx_grid = np.mgrid[0:PATCH_SIZE, 0:PATCH_SIZE]
+        radius_model = full_r / model_scale
+        margin = BOUNDARY_MARGIN_MODEL.get(core_num, 64)
+        core_size_model = max(int((radius_model + margin) * 2 + PATCH_SIZE), 1024)
         for row_i, row in enumerate(range(0, core_size_model, GRID_STEP)):
             for col_i, col in enumerate(range(0, core_size_model, GRID_STEP)):
                 model_left = -core_size_model / 2 + col
                 model_top = -core_size_model / 2 + row
-                circle_overlap = (np.hypot(xx_grid + model_left, yy_grid + model_top) <= radius_model).mean()
-                if circle_overlap < 0.01:
-                    continue
                 x_full = core["x_full"] + model_left * model_scale
                 y_full = core["y_full"] + model_top * model_scale
                 patch_hi, patch_model = read_model_patch(slide, x_full, y_full, read_size)
+                allowed, circle_overlap, tissue_frac, dark_frac = patch_allowed_for_core(
+                    core, patch_model, model_left, model_top, model_scale
+                )
+                if not allowed:
+                    continue
                 polys_model = []
                 polys_hi = []
-                if patch_model.mean() <= 248:
-                    labels, details = model.predict_instances(
-                        normalize(enhance_patch(patch_model), 1, 99.8),
-                        prob_thresh=PROB_THRESH[core_num],
-                        nms_thresh=0.3,
-                    )
-                    for cell_id, coords in enumerate(details["coord"], start=1):
-                        pts = np.array(coords).T
-                        center_y = float(np.mean(pts[:, 0]) + model_top)
-                        center_x = float(np.mean(pts[:, 1]) + model_left)
-                        if math.hypot(center_x, center_y) > radius_model:
-                            continue
-                        pts_model = [[round(float(p[1]), 1), round(float(p[0]), 1)] for p in pts]
-                        pts_hi = [[round(float(p[1] * model_scale), 1), round(float(p[0] * model_scale), 1)] for p in pts]
-                        area = int((labels == cell_id).sum())
-                        polys_model.append({"pts": pts_model, "area": area})
-                        polys_hi.append({"pts": pts_hi, "area": area})
+                labels, details = model.predict_instances(
+                    normalize(enhance_patch(patch_model), 1, 99.8),
+                    prob_thresh=PROB_THRESH[core_num],
+                    nms_thresh=0.3,
+                )
+                for cell_id, coords in enumerate(details["coord"], start=1):
+                    pts = np.array(coords).T
+                    center_y = float(np.mean(pts[:, 0]) + model_top)
+                    center_x = float(np.mean(pts[:, 1]) + model_left)
+                    if not keep_cell_for_core(core, center_x, center_y, patch_model, labels, cell_id, model_scale):
+                        continue
+                    pts_model = [[round(float(p[1]), 1), round(float(p[0]), 1)] for p in pts]
+                    pts_hi = [[round(float(p[1] * model_scale), 1), round(float(p[0] * model_scale), 1)] for p in pts]
+                    area = int((labels == cell_id).sum())
+                    polys_model.append({"pts": pts_model, "area": area})
+                    polys_hi.append({"pts": pts_hi, "area": area})
 
                 thumb = Image.fromarray(patch_model).resize((256, 256), Image.Resampling.LANCZOS)
                 thumb_b64, _, _ = encode_jpeg(thumb, 86)
@@ -354,6 +519,8 @@ def export_payload(slide, model, df, cores, source_mpp, model_scale, read_size, 
                     "polys_hi": polys_hi,
                     "n_cells": len(polys_model),
                     "circle_overlap": round(float(circle_overlap), 3),
+                    "tissue_fraction": round(float(tissue_frac), 4),
+                    "dark_fraction": round(float(dark_frac), 4),
                 })
 
         payload["patches"][key] = {
@@ -400,6 +567,12 @@ def add_analysis(payload):
         },
         "patch_stats": patch_stats,
     }
+
+
+def write_summary_tables(payload):
+    summary_df = pd.DataFrame(payload["analysis"]["summary"])
+    summary_df.to_csv(OUT_DIR / "analysis_summary_1path.csv", index=False)
+    summary_df[["core", "cells"]].to_csv(OUT_DIR / "core_counts_1path.csv", index=False)
 
 
 def write_html(payload, path):
@@ -525,6 +698,7 @@ def main():
 
     payload = export_payload(slide, model, df, cores, source_mpp, model_scale, read_size, slide_comparison)
     (OUT_DIR / "analysis_data_1path.json").write_text(json.dumps(payload), encoding="utf-8")
+    write_summary_tables(payload)
     write_html(payload, OUT_DIR / "1path_stardist_analysis.html")
     print(f"Saved outputs in {OUT_DIR}", flush=True)
 
