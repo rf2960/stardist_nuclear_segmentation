@@ -50,7 +50,7 @@ It is intentionally **not committed to normal Git history** because it is a self
 
 Download the public GitHub Release asset here:
 
-[`1path_stardist_nuclear_viewer_2026-04-29.html`](https://github.com/rf2960/stardist-nuclear-segmentation/releases/download/viewer-v1/1path_stardist_nuclear_viewer_2026-04-29.html)
+[`1path_stardist_nuclear_viewer_2026-04-29_modal.html`](https://github.com/rf2960/stardist-nuclear-segmentation/releases/download/viewer-v1/1path_stardist_nuclear_viewer_2026-04-29_modal.html)
 
 The viewer includes:
 
