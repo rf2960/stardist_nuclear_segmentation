@@ -155,34 +155,23 @@ def save_density(data):
 def save_area_histogram(data):
     fig, ax = plt.subplots(figsize=(9, 4.8), dpi=180)
     colors = [data["cores"][f"core{i}"]["color"] for i in range(1, 8)]
+    grid = np.linspace(20, 500, 500)
+    bandwidth = 18.0
     for i in range(1, 8):
-        areas = [cell["area"] for cell in data["cores"][f"core{i}"]["cells"]]
-        ax.hist(areas, bins=np.arange(20, 901, 25), histtype="step", linewidth=1.4, color=colors[i - 1], label=f"Core {i}")
-    ax.set_title("Detected Nuclear Area Distribution")
-    ax.set_xlabel("Mask area at model scale (px)")
-    ax.set_ylabel("Nuclei")
+        areas = np.array([cell["area"] for cell in data["cores"][f"core{i}"]["cells"]], dtype=float)
+        if len(areas) == 0:
+            continue
+        density = np.exp(-0.5 * ((grid[:, None] - areas[None, :]) / bandwidth) ** 2).sum(axis=1)
+        density /= len(areas) * bandwidth * np.sqrt(2 * np.pi)
+        ax.plot(grid, density, linewidth=2.0, color=colors[i - 1], label=f"Core {i}")
+    ax.set_title("Smoothed Nuclear Mask Area Distribution")
+    ax.set_xlabel("Predicted nuclear mask area at model scale (px)")
+    ax.set_ylabel("Density")
     ax.spines[["top", "right"]].set_visible(False)
     ax.grid(axis="y", alpha=0.18)
     ax.legend(ncol=4, fontsize=8, frameon=False)
     fig.tight_layout()
     fig.savefig(FIG_DIR / "nuclear_area_histogram.png", bbox_inches="tight")
-    plt.close(fig)
-
-
-def save_patch_load_histogram(data):
-    fig, ax = plt.subplots(figsize=(9, 4.8), dpi=180)
-    colors = [data["cores"][f"core{i}"]["color"] for i in range(1, 8)]
-    for i in range(1, 8):
-        counts = [patch["n_cells"] for patch in data["patches"][f"core{i}"]["items"]]
-        ax.hist(counts, bins=np.arange(0, 1051, 50), histtype="step", linewidth=1.4, color=colors[i - 1], label=f"Core {i}")
-    ax.set_title("Patch-Level Nuclear Load Distribution")
-    ax.set_xlabel("Detected nuclei per displayed patch")
-    ax.set_ylabel("Patches")
-    ax.spines[["top", "right"]].set_visible(False)
-    ax.grid(axis="y", alpha=0.18)
-    ax.legend(ncol=4, fontsize=8, frameon=False)
-    fig.tight_layout()
-    fig.savefig(FIG_DIR / "patch_load_histogram.png", bbox_inches="tight")
     plt.close(fig)
 
 
@@ -196,7 +185,6 @@ def main():
     save_patch_grid(data, "core1")
     save_selected_patch(data, "core1", 1, 3)
     save_area_histogram(data)
-    save_patch_load_histogram(data)
     print(f"Saved figures to {FIG_DIR}")
 
 
