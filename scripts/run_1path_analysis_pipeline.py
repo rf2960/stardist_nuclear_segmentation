@@ -45,7 +45,7 @@ INCLUSION_RADIUS_MULT = {
     # Core 7 has a small marginal tissue/cell area just outside the visually
     # best-fit core circle. Keep the displayed circle tight, but use this
     # slightly wider invisible boundary for assigning nuclei and patches.
-    7: 1.30,
+    7: 1.03,
 }
 
 
@@ -104,39 +104,48 @@ def write_slide_comparison():
 
 
 def detect_cores(slide):
-    thumb_img = slide.get_thumbnail((500, 500))
-    thumb = np.array(thumb_img.convert("RGB"))
+    # Use the real pyramid overview rather than a tiny generated thumbnail.
+    # The thumbnail-based fit was too conservative on lower-row cores and cut
+    # off legitimate boundary tissue. Level 2 retains enough edge detail for a
+    # stable outer circle fit while staying small enough for fast processing.
+    overview = slide.read_region((0, 0), 2, slide.level_dimensions[2]).convert("RGB")
+    thumb = np.array(overview)
     scale_x = slide.level_dimensions[0][0] / thumb.shape[1]
     scale_y = slide.level_dimensions[0][1] / thumb.shape[0]
     gray = np.mean(thumb, axis=2)
+    hsv = cv2.cvtColor(thumb, cv2.COLOR_RGB2HSV)
 
-    # This slide reliably yields 7 cores at 230; lower thresholds split pale tissue.
-    mask = gray < 230
+    mask = ((gray < 235) | ((hsv[:, :, 1] > 18) & (gray < 248))).astype("uint8")
+    mask = cv2.morphologyEx(mask, cv2.MORPH_CLOSE, np.ones((7, 7), np.uint8))
+    mask = cv2.morphologyEx(mask, cv2.MORPH_OPEN, np.ones((3, 3), np.uint8))
     labeled, n = ndimage.label(mask)
     sizes = ndimage.sum(mask, labeled, range(1, n + 1))
     components = []
     for idx, size in enumerate(sizes, start=1):
-        if size <= 1000:
+        if size <= 2500:
             continue
         core_mask = labeled == idx
-        rows = np.where(core_mask.any(axis=1))[0]
-        cols = np.where(core_mask.any(axis=0))[0]
-        darkness = (255 - gray) * core_mask
-        total = darkness.sum()
-        weighted_y = (darkness * np.arange(thumb.shape[0])[:, None]).sum() / total
-        weighted_x = (darkness * np.arange(thumb.shape[1])[None, :]).sum() / total
-        bbox_y = (rows[0] + rows[-1]) / 2
-        bbox_x = (cols[0] + cols[-1]) / 2
-        radius = ((rows[-1] - rows[0]) / 2 + (cols[-1] - cols[0]) / 2) / 2
+        ys, xs = np.where(core_mask)
+        pts = np.column_stack([xs.astype("float32"), ys.astype("float32")])
+        (circle_x, circle_y), radius = cv2.minEnclosingCircle(pts)
         components.append({
-            "x_thumb": float(0.7 * bbox_x + 0.3 * weighted_x),
-            "y_thumb": float(0.7 * bbox_y + 0.3 * weighted_y),
-            "radius_thumb": float(radius),
+            "x_thumb": float(circle_x),
+            "y_thumb": float(circle_y),
+            # A tiny pad compensates for anti-aliased pale tissue edges without
+            # making the visible circle look inflated.
+            "radius_thumb": float(radius * 1.015),
             "area": int(core_mask.sum()),
         })
 
     components = sorted(components, key=lambda item: item["area"], reverse=True)[:7]
-    components = sorted(components, key=lambda item: (round(item["y_thumb"] / 80), item["x_thumb"]))
+    components = sorted(components, key=lambda item: item["y_thumb"])
+    rows = [components[:3], components[3:5], components[5:]]
+    rows[0] = sorted(rows[0], key=lambda item: item["x_thumb"])
+    rows[1] = sorted(rows[1], key=lambda item: item["x_thumb"])
+    # Preserve the established viewer convention: lower-right is Core 6 and
+    # the large lower-left tissue core is Core 7.
+    rows[2] = sorted(rows[2], key=lambda item: item["x_thumb"], reverse=True)
+    components = rows[0] + rows[1] + rows[2]
     if len(components) != 7:
         raise RuntimeError(f"Expected 7 cores, detected {len(components)}")
 

@@ -40,7 +40,7 @@ Processing steps:
 
 ## Results
 
-Final segmentation detected **80,623 nuclei** across seven cores.
+Final segmentation detected **81,849 nuclei** across seven cores.
 
 ![Core counts](docs/figures/core_counts_1path.png)
 
