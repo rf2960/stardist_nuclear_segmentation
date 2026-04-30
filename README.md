@@ -4,7 +4,7 @@ Scale-aware nuclear segmentation and interactive review for H&E tissue microarra
 
 ## Overview
 
-This repository contains a complete analysis workflow for segmenting nuclei from a 40x TMA whole-slide image using the pretrained StarDist `2D_versatile_he` model. The final analysis uses `1-pathology core stained.svs`, scanned at `0.2522 um/px`, and normalizes image patches to approximately `0.5027 um/px` before StarDist inference so the nuclei are presented near the model's expected scale.
+This repository contains a complete analysis workflow for segmenting nuclei from 40x TMA whole-slide images using the pretrained StarDist `2D_versatile_he` model. The current working comparison includes `1-pathology core stained.svs` and `Jiankang TMA.svs`, both scanned at `0.2522 um/px`, with image tiles normalized to approximately `0.5027 um/px` before StarDist inference so the nuclei are presented near the model's expected scale.
 
 The project outputs lightweight summary files and a self-contained HTML viewer for spatial review of cores, local image tiles, and nuclei.
 
@@ -12,9 +12,10 @@ The project outputs lightweight summary files and a self-contained HTML viewer f
 
 ## Interactive Viewer
 
-Download the current viewer from the GitHub Release asset:
+Download the current viewers from the GitHub Release assets:
 
-[`1path_stardist_nuclear_viewer.html`](https://github.com/rf2960/stardist-nuclear-segmentation/releases/download/viewer-v1/1path_stardist_nuclear_viewer.html)
+- [`1path_stardist_nuclear_viewer.html`](https://github.com/rf2960/stardist-nuclear-segmentation/releases/download/viewer-v1/1path_stardist_nuclear_viewer.html)
+- [`jiankang_stardist_nuclear_viewer.html`](https://github.com/rf2960/stardist-nuclear-segmentation/releases/download/viewer-v1/jiankang_stardist_nuclear_viewer.html)
 
 The viewer includes:
 
@@ -47,9 +48,22 @@ Processing steps:
 9. Deduplicate detections across overlapping tile boundaries.
 10. Export CSV summaries, publication figures, and a self-contained HTML viewer.
 
-## Results
+## Candidate Slide Comparison
 
-The current tuned pipeline detected **82,032 nuclei** across seven cores.
+Both candidate slides were processed with the same core detection, scale normalization, StarDist thresholds, mask-size filtering, stain filtering, and HTML export logic.
+
+| Slide | Total nuclei | Core 1 | Core 2 | Core 3 | Core 4 | Core 5 | Core 6 | Core 7 |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| 1-pathology core stained | 82,032 | 9,873 | 9,793 | 19,458 | 7,971 | 8,893 | 7,867 | 18,177 |
+| Jiankang TMA | 62,599 | 8,515 | 7,233 | 13,610 | 6,642 | 7,429 | 6,331 | 12,839 |
+
+The Jiankang slide is useful for checking alignment with the other overlay data, but it is visibly paler and produces fewer StarDist detections under the same parameters. The final slide choice should therefore be based on the visual overlay fit plus whether the lower nuclear contrast in Jiankang is acceptable.
+
+The lightweight comparison table is also saved as [`results_comparison.csv`](results_comparison.csv).
+
+## 1-Path Results
+
+The current tuned 1-path pipeline detected **82,032 nuclei** across seven cores.
 
 | Core | Detected nuclei |
 | --- | ---: |
@@ -125,6 +139,12 @@ docs/figures/
 results_1path_analysis/
   analysis_summary_1path.csv
   core_counts_1path.csv
+
+results_jiankang_analysis/
+  analysis_summary_jiankang.csv
+  core_counts_jiankang.csv
+
+results_comparison.csv
 ```
 
 Large raw slides, generated JSON, detected-cell CSVs, and self-contained HTML viewers are intentionally ignored by Git and kept locally or distributed through GitHub Releases.
